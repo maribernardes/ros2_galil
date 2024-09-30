@@ -1,3 +1,7 @@
+### Galil drivers
+gclib and others: https://www.galil.com/sw/pub/all/doc/global/install/linux/ubuntu/
+Python wrapper: https://www.galil.com/sw/pub/all/doc/gclib/html/python.html
+
 ### Create a workspace
 ```
 mkdir -p ~/ros/galil/src
