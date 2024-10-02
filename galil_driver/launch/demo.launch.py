@@ -47,7 +47,6 @@ def generate_launch_description():
         'urdf',
         urdf_file_name)
 
-    print(urdf)
     # Define rviz path
     rviz_config = os.path.join(
         get_package_share_directory('galil_description'),

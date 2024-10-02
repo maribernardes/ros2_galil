@@ -15,8 +15,8 @@ forward_position_controller:
   ros__parameters:
     joints:
       - insertion_joint
-      - template_horizontal_joint
-      - template_vertical_joint
+      - horizontal_joint
+      - vertical_joint
     interface_name: position
 
 
@@ -24,8 +24,8 @@ joint_trajectory_position_controller:
   ros__parameters:
     joints:
       - insertion_joint
-      - template_horizontal_joint
-      - template_vertical_joint
+      - horizontal_joint
+      - vertical_joint
 
     command_interfaces:
       - position
