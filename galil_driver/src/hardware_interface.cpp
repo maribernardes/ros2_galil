@@ -16,13 +16,18 @@ namespace galil_driver {
   
   hardware_interface::CallbackReturn
   GalilSystemHardwareInterface::on_init(const hardware_interface::HardwareInfo& info){
+    cmd_mode_ = 0;
+
     if( hardware_interface::SystemInterface::on_init(info) !=
 	hardware_interface::CallbackReturn::SUCCESS ){
       return hardware_interface::CallbackReturn::ERROR;
     }
 
+    info_ = info;
+
     hw_states_position_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
     hw_states_velocity_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+    hw_states_effort_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
     hw_commands_position_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
     hw_commands_velocity_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
 
@@ -38,6 +43,8 @@ namespace galil_driver {
 	  RCLCPP_INFO(rclcpp::get_logger("GalilSystemHardwareInterface"), " %s has position state interface.", joint.name.c_str() );
 	if( joint.state_interfaces[i].name == hardware_interface::HW_IF_VELOCITY )
 	  RCLCPP_INFO(rclcpp::get_logger("GalilSystemHardwareInterface"), " %s has velocity state interface.", joint.name.c_str() );
+	if( joint.state_interfaces[i].name == hardware_interface::HW_IF_EFFORT )
+	  RCLCPP_INFO(rclcpp::get_logger("GalilSystemHardwareInterface"), " has effort state interface.");
       }
     }
     
@@ -61,38 +68,12 @@ namespace galil_driver {
     }
 
     // The BWH order:
-    // Joints are parsed in this order: insertion, horizontal, vertical
     // This should be in on_init and search for joint.name instead
     // Likewise, gears should use URDF transmission
-    channels.push_back( 'C' ); // insertion
-    gears['C'] = 1000.0*-2000.0/1.27;
-    channels.push_back( 'A' ); // horizontal
-    gears['A'] = 1000.0*715.0;
-    channels.push_back( 'B' ); // vertical
-    gears['B'] = 1000.0*1430.0;
+    gears_m_2_cnt.push_back(1000.0*715.0);
+    gears_m_2_cnt.push_back(1000.0*1430.0);
+    gears_m_2_cnt.push_back(1000.0*-2000.0/1.27);
 
-    /*
-    if( GCommand(connection, "DPA=0", buffer, BUFFER_LENGTH, &bytes_returned) != G_NO_ERROR ){
-      std::cout << buffer << std::endl;
-    }
-    else{ std::cout << "error" << std::endl; }
-    if( GCommand(connection, "DPB=0", buffer, BUFFER_LENGTH, &bytes_returned) != G_NO_ERROR ){
-      std::cout << buffer << std::endl;
-    }
-    if( GCommand(connection, "DPC=0", buffer, BUFFER_LENGTH, &bytes_returned) != G_NO_ERROR ){
-      std::cout << buffer << std::endl;
-    }
-    if( GCommand(connection, "PTA=1", buffer, BUFFER_LENGTH, &bytes_returned) != G_NO_ERROR ){
-      std::cout << buffer << std::endl;
-    }
-    if( GCommand(connection, "PTB=1", buffer, BUFFER_LENGTH, &bytes_returned) != G_NO_ERROR ){
-      std::cout << buffer << std::endl;
-    }
-    if( GCommand(connection, "PTC=1", buffer, BUFFER_LENGTH, &bytes_returned) != G_NO_ERROR ){
-      std::cout << buffer << std::endl;
-    }
-    */
-    
     RCLCPP_INFO(rclcpp::get_logger("GalilSystemHardwareInterface"), "Successfully configured!");
     return hardware_interface::CallbackReturn::SUCCESS;
   }
@@ -106,6 +87,9 @@ namespace galil_driver {
       state_interfaces.emplace_back(hardware_interface::StateInterface(info_.joints[i].name,
 								       hardware_interface::HW_IF_VELOCITY,
 								       &hw_states_velocity_[i]) );
+      state_interfaces.emplace_back(hardware_interface::StateInterface(info_.joints[i].name,
+								       hardware_interface::HW_IF_EFFORT,
+								       &hw_states_effort_[i]) );
     }
     return state_interfaces;
   }
@@ -133,6 +117,111 @@ namespace galil_driver {
     return hardware_interface::CallbackReturn::SUCCESS;
   }
   
+  hardware_interface::return_type
+  GalilSystemHardwareInterface::prepare_command_mode_switch
+  (const std::vector<std::string>& start_interfaces,
+   const std::vector<std::string>& stop_interfaces){
+    
+    std::cout << "GalilSystemHardwareInterface::prepare_command_mode_switch" << std::endl;
+    hardware_interface::return_type ret_val = hardware_interface::return_type::OK;
+
+    // Process the interfaces to stop.
+    for (const auto& key : stop_interfaces){
+      std::cout << "stop: " << key << std::endl;
+      
+      for(auto i = 0u; i < info_.joints.size(); i++){
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_POSITION){
+	  hw_commands_velocity_[i] = 0.0;
+
+	  GSize BUFFER_LENGTH=1024;
+	  GSize bytes_returned;
+	  char channels[] = "ABCD";
+	  char command[1024]="";
+	  char buffer[1024];
+	  sprintf( command, "ST %c", channels[i]);
+	  std::cout << command << std::endl;
+	  int error = GCommand(connection, command, buffer, BUFFER_LENGTH, &bytes_returned );
+	  if( error != G_NO_ERROR ){
+	    RCLCPP_ERROR( rclcpp::get_logger("GalilSystemHardwareInterface"),
+			  "Failed to send command: %s, error code %d", command, error);
+	  }
+	}
+
+	// for velocity we must send stop command
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_VELOCITY){
+	  hw_commands_velocity_[i] = 0.0;
+
+	  GSize BUFFER_LENGTH=1024;
+	  GSize bytes_returned;
+	  char channels[] = "ABCD";
+	  char command[1024]="";
+	  char buffer[1024];
+	  sprintf( command, "ST %c", channels[i]);
+	  std::cout << command << std::endl;
+	  int error = GCommand(connection, command, buffer, BUFFER_LENGTH, &bytes_returned );
+	  if( error != G_NO_ERROR ){
+	    RCLCPP_ERROR( rclcpp::get_logger("GalilSystemHardwareInterface"),
+			  "Failed to send command: %s, error code %d", command, error);
+	  }
+	}
+      }
+    }
+
+    for (const auto& key : start_interfaces){
+      std::cout << "start: " << key << std::endl;
+      for (auto i = 0u; i < info_.joints.size(); i++) {
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_POSITION) {
+	  cmd_mode_ = 1;
+	  hw_commands_velocity_[i] = 0.0;
+	}
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_VELOCITY) {
+	  cmd_mode_ = 2;
+	  hw_commands_velocity_[i] = 0.0;
+	}
+      }
+    }
+
+    return ret_val;
+  }
+  
+  hardware_interface::return_type
+  GalilSystemHardwareInterface::perform_command_mode_switch
+  (const std::vector<std::string>& start_interfaces,
+   const std::vector<std::string>& stop_interfaces){
+
+    std::cout << "GalilSystemHardwareInterface::perform_command_mode_switch" << std::endl;
+    hardware_interface::return_type ret_val = hardware_interface::return_type::OK;
+
+    for (const auto& key : stop_interfaces){
+      std::cout << "stop: " << key << std::endl;
+      for(auto i = 0u; i < info_.joints.size(); i++) {
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_POSITION){
+	  hw_commands_velocity_[i] = 0.0;
+	}
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_VELOCITY){
+	  hw_commands_velocity_[i] = 0.0;
+	}
+      }
+    }
+    
+    for (const auto& key : start_interfaces){
+      std::cout << "start: " << key << std::endl;
+      for (auto i = 0u; i < info_.joints.size(); i++) {
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_POSITION){
+	  // This is to prevent sending old position when switching
+	  std::cout << "switch: " << hw_states_position_[i] << std::endl;
+	  hw_commands_position_[i] = hw_states_position_[i];
+	  hw_commands_velocity_[i] = 0.0;
+	}
+	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_VELOCITY){
+	  hw_commands_velocity_[i] = 0.0;
+	}
+      }
+    }
+    
+    return ret_val;
+  }
+
   
   hardware_interface::return_type GalilSystemHardwareInterface::read( const rclcpp::Time& /*time*/,
 								      const rclcpp::Duration& /*period*/){
@@ -143,55 +232,29 @@ namespace galil_driver {
     if( GCommand(connection, "TP", buffer, BUFFER_LENGTH, &bytes_returned ) == G_NO_ERROR ){
       char * pch;
       pch = strtok(buffer,",");
-
-      char abc[] = "ABC";
-      for( std::size_t i=0; i<channels.size(); i++ ){
-	
-	std::vector<char>::iterator it = std::find( channels.begin(), channels.end(), abc[i] );
-	if( it == channels.end() ){
-	  RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), " Failed to retrieve index for channel %c.", abc[i]);
-	  continue;
-	}
-	
+      for( std::size_t i=0; i<info_.joints.size(); i++ ){
 	if(pch != NULL){
-	  //std::cout << abc[i] << " " << channels[it - channels.begin()] << std::endl;
-	  double gear = gears[*it];
-	  //std::cout << *it << " " << 1.0/gear << std::endl;
-	  hw_states_position_[ it - channels.begin() ] = atof( pch ) / gear;
+	  hw_states_position_[i] = atof( pch )/gears_m_2_cnt[i];
 	  pch = strtok (NULL, ",");
 	}
       }
-      
     }
     else{
-      RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), " Failed to send TP command to Galil.");
+      RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "Failed to send TP command to Galil.");
       hardware_interface::return_type::ERROR;
     }
-    
     if( GCommand(connection, "TV", buffer, BUFFER_LENGTH, &bytes_returned ) == G_NO_ERROR ){
       char * pch;
       pch = strtok(buffer,",");
-
-      char abc[] = "ABC";
-      for( std::size_t i=0; i<channels.size(); i++ ){
-
-	std::vector<char>::iterator it = std::find( channels.begin(), channels.end(), abc[i] );
-	if( it == channels.end() ){
-	  RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), " Failed to retrieve index for channel %c.", abc[i]);
-	  continue;
-	}
-	
+      for( std::size_t i=0; i<info_.joints.size(); i++ ){
 	if(pch != NULL){
-	  //std::cout << abc[i] << " " << channels[it - channels.begin()] << std::endl;
-	  double gear = gears[*it];
-	  //std::cout << *it << " " << 1.0/gear << std::endl;
-	  hw_states_velocity_[ it - channels.begin() ] = atof( pch ) / gear;
+	  hw_states_velocity_[i] = atof( pch )/gears_m_2_cnt[i];
 	  pch = strtok (NULL, ",");
 	}
       }
     }
     else{
-      RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), " Failed to send TV command to Galil.");
+      RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "Failed to send TV command to Galil.");
       hardware_interface::return_type::ERROR;
     }
     return hardware_interface::return_type::OK;
@@ -200,51 +263,62 @@ namespace galil_driver {
   hardware_interface::return_type GalilSystemHardwareInterface::write(const rclcpp::Time& /*time*/,
 								      const rclcpp::Duration& /*period*/){
 
-    char abc[] = "ABC";
-    for( std::size_t i=0; i<channels.size(); i++ ){
+    char command[1024]="";
+    GSize BUFFER_LENGTH=1024;
+    GSize bytes_returned;
+    char buffer[1024];
+    if( cmd_mode_ == 1 )
+      { sprintf( command, "PA " ); }
+    if( cmd_mode_ == 2 )
+      { sprintf( command, "JG " ); }
 
-      char channel = channels[i];
+    for( std::size_t i=0; i<info_.joints.size(); i++ ){
 
-      if( !isnan(hw_commands_position_[i]) ){
-	GSize BUFFER_LENGTH=1024;
-	GSize bytes_returned;
-	char command[1024];
-	char buffer[1024];
-    
-	double gear = gears[channel];
-	std::cout << channel << " " << gear << std::endl;
-	
-	sprintf( command, "PA%c=%d", channel, ((int)(hw_commands_position_[i] * gear)) );
-	std::cout << command << std::endl;
-
-	int error = GCommand(connection, command, buffer, BUFFER_LENGTH, &bytes_returned );
-	if( error == G_NO_ERROR ){
-	  sprintf( command, "BG%c", channel );
-	  //std::cout << command << std::endl;
-	  
-	  error = GCommand(connection, command, buffer, BUFFER_LENGTH, &bytes_returned );
-	  if( error == G_NO_ERROR ){}
-	  // need to deal with this by querying _BG 
-	  else if( error == -10000 ) {}
-	  else{
-	    RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "Failed to send command: %s, error code %d", command, error);
-	    std::cout << buffer << " " << error << std::endl;
-	    hardware_interface::return_type::ERROR;
-	  }
-	  hw_commands_position_[i] = std::numeric_limits<double>::quiet_NaN();
-	}
-	else{
-	  RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "Failed to send command: %s, error code %d", command, error);
-	  //std::cout << buffer << " " << error << std::endl;
-	  hardware_interface::return_type::ERROR;
-	}
+      char separator=',';
+      if( i == info_.joints.size()-1 )
+	separator=' ';
+      
+      // The following blocks assume that i follows ABCD
+      if( cmd_mode_ == 1 ){
+	if( !isnan(hw_commands_position_[i]) && 0<strlen(command) )
+	  // Position Absolute command
+	  { sprintf( command, "%s%d%c", command, ((int)(hw_commands_position_[i]*gears_m_2_cnt[i])), separator ); }
       }
-      else{
-	//RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "NaN command. Not sending.");
+      if( cmd_mode_ == 2 ){
+	if( !isnan(hw_commands_velocity_[i]) && 0<strlen(command) )
+	  // JoG command
+	  { sprintf( command, "%s%d%c", command, ((int)(hw_commands_velocity_[i]*gears_m_2_cnt[i])), separator ); }
       }
 
     }
-    std::cout << std::endl;
+
+    // if 
+    if( 0<strlen(command) ){
+      std::cout << command << std::endl;
+      int error = GCommand(connection, command, buffer, BUFFER_LENGTH, &bytes_returned );
+      if( error == G_NO_ERROR ){
+	error = GCommand(connection, "BG", buffer, BUFFER_LENGTH, &bytes_returned );
+	if( error == G_NO_ERROR ){}
+	else{
+	  RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "Failed to send command: %s error code %d",
+		       command, error);
+	  error = GCommand(connection, "TC1", buffer, BUFFER_LENGTH, &bytes_returned );
+	  RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "TC1: %s.", buffer);
+	  hardware_interface::return_type::ERROR;
+	}
+	
+      }
+      else{
+	RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "Failed to send command: %s error code %d",
+		     command, error);
+	error = GCommand(connection, "TC1", buffer, BUFFER_LENGTH, &bytes_returned );
+	RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "TC1: %s.", buffer);
+	hardware_interface::return_type::ERROR;
+      }
+    }
+    else // empty command
+      {/*RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "NaN command. Not sending.");*/}
+    
     return hardware_interface::return_type::OK;
   }
   

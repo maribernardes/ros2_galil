@@ -36,15 +36,24 @@ namespace galil_driver{
     
     hardware_interface::return_type read(const rclcpp::Time& time, const rclcpp::Duration& period) override;
     hardware_interface::return_type write(const rclcpp::Time& time, const rclcpp::Duration& period) override;
+
+    hardware_interface::return_type perform_command_mode_switch(const std::vector<std::string>& start_interfaces,
+								const std::vector<std::string>& stop_interfaces) override;
+
+    hardware_interface::return_type prepare_command_mode_switch(const std::vector<std::string>& start_interfaces,
+								const std::vector<std::string>& stop_interfaces) override;
+    
   private:
+    hardware_interface::HardwareInfo info_;
     std::vector<double> hw_commands_position_;
     std::vector<double> hw_commands_velocity_;
     std::vector<double> hw_states_position_;
     std::vector<double> hw_states_velocity_;
     std::vector<double> hw_states_effort_;
+    int cmd_mode_;
 
-    std::vector< char > channels;
-    std::map< char, double > gears;
+    //std::vector< char > channels;
+    std::vector<double> gears_m_2_cnt;
     
     GCon connection;
   };
