@@ -251,13 +251,26 @@ namespace galil_driver {
 	  // This is to prevent sending old position when switching
 	  hw_commands_position_[i] = hw_states_position_[i];
 	  hw_commands_velocity_[i] = 0.0;
+
+	  GSize BUFFER_LENGTH=1024;
+	  GSize bytes_returned;
+	  char command[1024]="";
+	  char buffer[1024];
+	  sprintf( command, "PT 1,1,1,1" ); // no need to send that command multiple times
+	  int error = GCommand(connection, command, buffer, BUFFER_LENGTH, &bytes_returned );
+	  if( error != G_NO_ERROR ){
+	    RCLCPP_ERROR( rclcpp::get_logger("GalilSystemHardwareInterface"),
+			  "Failed to send command: %s, error code %d", command, error);
+	    return hardware_interface::return_type::ERROR;
+	  }
+
 	}
 	if(key == info_.joints[i].name + "/" + hardware_interface::HW_IF_VELOCITY){
 	  RCLCPP_INFO_STREAM( rclcpp::get_logger("GalilSystemHardwareInterface"),
 			      "Start interface " <<
 			      info_.joints[i].name <<
 			      "/" <<  hardware_interface::HW_IF_VELOCITY );
-
+	  
 	  hw_commands_velocity_[i] = 0.0;
 
 	  GSize BUFFER_LENGTH=1024;
@@ -347,8 +360,22 @@ namespace galil_driver {
       // velocity command (no stopping)
       if( cmd_mode_ == 2 ){
 	if( !isnan(hw_commands_velocity_[i]) && 0<strlen(command) ){
-	  hw_commands_position_[i] += period.seconds() * hw_commands_velocity_[i]*gears_m_2_cnt[i];
-	  sprintf( command, "%s%d%c", command, ((int)hw_commands_position_[i]), separator );
+	  if( i == 0 || i == 2 ){ 
+	    hw_commands_position_[i] += (period.seconds() * hw_commands_velocity_[i]/3.0);
+	  }
+	  else{
+	    hw_commands_position_[i] += (period.seconds() * hw_commands_velocity_[i]);
+	  }
+	  if( i == 0 && hw_commands_position_[i] < -0.03 )
+	    hw_commands_position_[i] = -0.03;
+	  if( i == 0 && 0.03 <= hw_commands_position_[i] )
+	    hw_commands_position_[i] = 0.03;	  
+	  if( i == 2 && hw_commands_position_[i] < -0.025 )
+	    hw_commands_position_[i] = -0.025;
+	  if( i == 2 && 0.025 <= hw_commands_position_[i] )
+	    hw_commands_position_[i] = 0.025;
+	  
+	  sprintf( command, "%s%d%c", command, ((int)(hw_commands_position_[i]*gears_m_2_cnt[i])), separator );
 	}
       }
 
@@ -360,6 +387,7 @@ namespace galil_driver {
       // don't send BG for PT
       if( error == G_NO_ERROR ){
 	// only send in position mode
+	/*
 	if( cmd_mode_ == 1 ){
 	  error = GCommand(connection, "BG", buffer, BUFFER_LENGTH, &bytes_returned );
 	  if( error == G_NO_ERROR ){}
@@ -371,6 +399,7 @@ namespace galil_driver {
 	    return hardware_interface::return_type::ERROR;
 	  }
 	}
+	*/
       }
       else{
 	RCLCPP_ERROR(rclcpp::get_logger("GalilSystemHardwareInterface"), "Failed to send command: %s error code %d",
