@@ -5,7 +5,7 @@
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
-#include "hardware_interface/visibility_control.h"
+//#include "hardware_interface/visibility_control.h"  //Mariana - Fix for Jazzy
 
 // ROS
 #include "rclcpp/macros.hpp"
@@ -24,7 +24,9 @@ namespace galil_driver{
     RCLCPP_SHARED_PTR_DEFINITIONS(GalilSystemHardwareInterface)
     virtual ~GalilSystemHardwareInterface();
     
-    hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo& info) override;
+    //hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo& info) override; //Mariana: Jazzy fix
+    hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareComponentInterfaceParams & params) override;
+
 
     hardware_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State & previous_state) override;
 
