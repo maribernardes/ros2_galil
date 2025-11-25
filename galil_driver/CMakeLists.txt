@@ -31,11 +31,24 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   tf2_geometry_msgs
   )
 
+# Find the Galil gclib (the one from package `gclib`, NOT others like the bio libgclib3t64)
+find_library(GALIL_GCLIB
+  NAMES gclib
+  PATHS /usr/lib
+  NO_DEFAULT_PATH
+)
+if(NOT GALIL_GCLIB)
+  message(FATAL_ERROR "Galil gclib (libgclib.so) not found in /usr/lib. Is the 'gclib' package from Galil installed?")
+endif()
+message(STATUS "Using Galil gclib: ${GALIL_GCLIB}")
+
 add_library(galil_driver_plugin
   SHARED
   src/hardware_interface.cpp
   )
-target_link_libraries( galil_driver_plugin gclib )
+
+
+target_link_libraries(galil_driver_plugin ${GALIL_GCLIB})
 target_include_directories(
   galil_driver_plugin
   PRIVATE
